@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Incident Response Agent with Hindsight</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --panel:#121a33;
+      --panel2:#1a2447;
+      --text:#e8ecff;
+      --muted:#9aa7d6;
+      --ok:#3ddc97;
+      --warn:#ffd166;
+      --bad:#ff6b6b;
+      --blue:#6ea8fe;
+      --border:#2a376a;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:Inter,Segoe UI,Arial,sans-serif;
+      background:linear-gradient(180deg,var(--bg),#0f1530 60%);
+      color:var(--text);
+      min-height:100vh;
+    }
+    .container{
+      max-width:1100px;
+      margin:32px auto;
+      padding:0 16px 32px;
+    }
+    h1{
+      margin:0 0 6px;
+      font-size:30px;
+    }
+    .sub{
+      color:var(--muted);
+      margin-bottom:24px;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:16px;
+    }
+    .card{
+      background:var(--panel);
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:16px;
+      box-shadow:0 4px 16px rgba(0,0,0,.25);
+    }
+    .card h2{
+      margin:0 0 12px;
+      font-size:18px;
+    }
+    label{
+      display:block;
+      font-size:13px;
+      color:var(--muted);
+      margin:8px 0 6px;
+    }
+    input, textarea, select{
+      width:100%;
+      border:1px solid var(--border);
+      background:var(--panel2);
+      color:var(--text);
+      border-radius:8px;
+      padding:10px 12px;
+      outline:none;
+    }
+    textarea{min-height:90px; resize:vertical}
+    .row{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px;
+    }
+    .btn{
+      margin-top:12px;
+      border:none;
+      border-radius:8px;
+      padding:10px 14px;
+      font-weight:600;
+      cursor:pointer;
+      color:#081027;
+      background:var(--blue);
+    }
+    .btn.secondary{
+      background:#8bb8ff;
+    }
+    .btn.ok{background:var(--ok)}
+    .btn.warn{background:var(--warn)}
+    .btn.bad{background:var(--bad); color:#fff}
+    .output{
+      margin-top:18px;
+      background:#0d1430;
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:12px;
+      min-height:130px;
+      white-space:pre-wrap;
+      font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+      font-size:13px;
+      overflow:auto;
+    }
+    .full{grid-column:1 / -1}
+    .hint{
+      font-size:12px;
+      color:var(--muted);
+      margin-top:8px;
+    }
+    .topbar{
+      display:flex; gap:10px; align-items:center; margin-bottom:16px;
+    }
+    .topbar input{max-width:320px}
+    @media (max-width:900px){
+      .grid{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Incident Response Agent with Hindsight</h1>
+    <div class="sub">Create incidents, diagnose with memory, resolve, and verify learning behavior.</div>
+
+    <div class="topbar card">
+      <div style="flex:1">
+        <label>Backend Base URL</label>
+        <input id="baseUrl" value="http://127.0.0.1:8000" />
+        <div class="hint">If frontend and backend run on different ports, CORS must be enabled in FastAPI.</div>
+      </div>
+      <button class="btn secondary" onclick="checkHealth()">Check Health</button>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <h2>1) Create Incident</h2>
+        <label>Title</label>
+        <input id="title" placeholder="Checkout API timeout spike" />
+
+        <div class="row">
+          <div>
+            <label>Service</label>
+            <input id="service" placeholder="checkout-service" />
+          </div>
+          <div>
+            <label>Severity</label>
+            <select id="severity">
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high" selected>high</option>
+              <option value="critical">critical</option>
+            </select>
+          </div>
+        </div>
+
+        <label>Symptoms</label>
+        <textarea id="symptoms" placeholder="p99 latency jumped from 180ms to 5.2s"></textarea>
+
+        <label>Logs</label>
+        <textarea id="logs" placeholder="ERROR db pool timeout; waiting for available connection"></textarea>
+
+        <button class="btn ok" onclick="createIncident()">Create Incident</button>
+      </div>
+
+      <div class="card">
+        <h2>2) Incident Actions</h2>
+        <label>Incident ID</label>
+        <input id="incidentId" type="number" placeholder="1" />
+
+        <div class="row">
+          <button class="btn secondary" onclick="getIncident()">Get Incident</button>
+          <button class="btn warn" onclick="diagnoseIncident()">Diagnose</button>
+        </div>
+
+        <label>Root Cause (for resolve)</label>
+        <textarea id="rootCause" placeholder="Connection pool too small after traffic surge"></textarea>
+
+        <label>Resolution (for resolve)</label>
+        <textarea id="resolution" placeholder="Increased pool size, tuned timeout, restarted pods"></textarea>
+
+        <button class="btn bad" onclick="resolveIncident()">Resolve + Retain Memory</button>
+      </div>
+
+      <div class="card full">
+        <h2>Output</h2>
+        <div id="output" class="output">Ready.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function apiBase() {
+      return document.getElementById("baseUrl").value.replace(/\/+$/,'');
+    }
+
+    function setOutput(data) {
+      const out = document.getElementById("output");
+      out.textContent = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    }
+
+    async function request(path, options = {}) {
+      const url = apiBase() + path;
+      try {
+        const res = await fetch(url, {
+          headers: { "Content-Type": "application/json" },
+          ...options
+        });
+        const text = await res.text();
+        let data;
+        try { data = text ? JSON.parse(text) : {}; } catch { data = text; }
+
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}: ${typeof data === "string" ? data : JSON.stringify(data)}`);
+        }
+        return data;
+      } catch (err) {
+        setOutput(`Request failed:\n${err.message}`);
+        throw err;
+      }
+    }
+
+    async function checkHealth() {
+      const data = await request("/", { method: "GET" });
+      setOutput(data);
+    }
+
+    async function createIncident() {
+      const payload = {
+        title: document.getElementById("title").value.trim(),
+        service: document.getElementById("service").value.trim(),
+        severity: document.getElementById("severity").value,
+        symptoms: document.getElementById("symptoms").value.trim(),
+        logs: document.getElementById("logs").value.trim() || null
+      };
+
+      if (!payload.title || !payload.service || !payload.severity || !payload.symptoms) {
+        setOutput("Please fill title, service, severity, symptoms.");
+        return;
+      }
+
+      const data = await request("/incidents", {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      setOutput(data);
+
+      if (data?.id) {
+        document.getElementById("incidentId").value = data.id;
+      }
+    }
+
+    async function getIncident() {
+      const id = document.getElementById("incidentId").value;
+      if (!id) return setOutput("Please enter incident ID.");
+      const data = await request(`/incidents/${id}`, { method: "GET" });
+      setOutput(data);
+    }
+
+    async function diagnoseIncident() {
+      const id = document.getElementById("incidentId").value;
+      if (!id) return setOutput("Please enter incident ID.");
+      const data = await request(`/incidents/${id}/diagnose`, { method: "POST" });
+      setOutput(data);
+    }
+
+    async function resolveIncident() {
+      const id = document.getElementById("incidentId").value;
+      if (!id) return setOutput("Please enter incident ID.");
+
+      const payload = {
+        root_cause: document.getElementById("rootCause").value.trim(),
+        resolution: document.getElementById("resolution").value.trim()
+      };
+
+      if (!payload.root_cause || !payload.resolution) {
+        return setOutput("Please fill root cause and resolution.");
+      }
+
+      const data = await request(`/incidents/${id}/resolve`, {
+        method: "POST",
+        body: JSON.stringify(payload)
+      });
+      setOutput(data);
+    }
+  </script>
+</body>
+</html>
